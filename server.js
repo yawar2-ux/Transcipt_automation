@@ -36,26 +36,42 @@ wss.on('connection', (ws) => {
   });
 
   // When Deepgram sends text back, forward it to the browser
-  // When Deepgram sends text back, forward it to the browser
   // 1. See EVERYTHING Deepgram sends back, even the drafts
   dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
-    const transcript = data.channel.alternatives[0].transcript;
-    
-    // Log every single guess Deepgram makes to the terminal
-    if (transcript) {
-        console.log(`[Deepgram Hears]: ${transcript} | is_final: ${data.is_final}`);
-    } else {
-        console.log(`[Deepgram Empty]: is_final: ${data.is_final}`, data.type);
-    }
+    try {
+      const transcript = data.channel.alternatives[0].transcript;
+      
+      if (transcript) {
+          console.log(`[Deepgram Hears]: ${transcript} | is_final: ${data.is_final}`);
+      } else {
+          console.log(`[Deepgram Empty]: is_final: ${data.is_final}`);
+      }
 
-    // Only send the finalized ones to the frontend
-    if (transcript && data.is_final && data.channel.alternatives[0].words.length > 0) {
-      const speakerId = data.channel.alternatives[0].words[0].speaker;
-      ws.send(JSON.stringify({ speaker: speakerId, text: transcript }));
+      // Only send the finalized ones to the frontend it requires at least one word
+      if (transcript && data.is_final && data.channel.alternatives[0].words && data.channel.alternatives[0].words.length > 0) {
+        const speakerId = data.channel.alternatives[0].words[0].speaker;
+        ws.send(JSON.stringify({ speaker: speakerId, text: transcript }));
+      }
+    } catch (err) {
+      console.log('❌ Error parsing transcript:', err.message, JSON.stringify(data));
     }
   });
 
-  dgConnection.on('error', (err) => console.error('Deepgram Error:', err));
+  dgConnection.on(LiveTranscriptionEvents.Metadata, (data) => {
+    console.log('📊 Deepgram Metadata:', data);
+  });
+
+  dgConnection.on(LiveTranscriptionEvents.Close, () => {
+    console.log('🔴 Deepgram connection closed.');
+  });
+  
+  dgConnection.on(LiveTranscriptionEvents.Error, (err) => {
+    console.error('❌ Deepgram Live API Error:', err);
+  });
+
+  dgConnection.on(LiveTranscriptionEvents.Unhandled, (event) => {
+    console.log('❓ Deepgram Unhandled Event:', event);
+  });
 
   // When the browser sends audio chunks, forward them to Deepgram
  ws.on('message', (audioData) => {
