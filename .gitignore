@@ -1,0 +1,6 @@
+node_modules/
+.env
+.DS_Store
+test-dk.js
+test-event.js
+test.wav

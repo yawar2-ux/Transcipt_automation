@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Architect HUD</title>
+    <style>
+        body { background-color: #121212; color: #ffffff; font-family: sans-serif; padding: 20px; }
+        h2 { text-align: center; color: #9ca3af; }
+        .chat { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+        .message { padding: 12px; border-radius: 8px; max-width: 80%; line-height: 1.5; }
+        
+        /* Auto-color different speakers */
+        .speaker-0 { background-color: #1e3a8a; align-self: flex-start; }
+        .speaker-1 { background-color: #064e3b; align-self: flex-end; }
+        .speaker-2 { background-color: #7f1d1d; align-self: center; }
+        
+        button { padding: 15px; background-color: #2563eb; color: white; border: none; border-radius: 8px; width: 100%; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s;}
+        button:active { transform: scale(0.98); }
+        .recording { background-color: #dc2626; }
+    </style>
+</head>
+<body>
+    <h2>Meeting Transcript API</h2>
+    <button id="micBtn">Start Listening</button>
+    <div class="chat" id="chatContainer"></div>
+
+    <script>
+        let mediaRecorder; // Global scope
+let socket;
+let deepgramReady = false;
+
+micBtn.onclick = async () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        socket.close();
+        micBtn.innerText = 'Start Listening';
+        micBtn.classList.remove('recording');
+        return;
+    }
+
+    socket = new WebSocket('ws://localhost:3000');
+    deepgramReady = false;
+
+    socket.onopen = async () => {
+        micBtn.innerText = 'Connecting to AI...';
+        
+        try {
+            // Create audio context immediately to catch the user gesture!
+            const audioContext = new AudioContext();
+            
+            // 1. Capture Mic + System Audio
+            const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).catch(() => null);
+            
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+
+            const mixedOutput = audioContext.createMediaStreamDestination();
+
+            audioContext.createMediaStreamSource(micStream).connect(mixedOutput);
+            if (displayStream && displayStream.getAudioTracks().length > 0) {
+                audioContext.createMediaStreamSource(displayStream).connect(mixedOutput);
+            } else {
+                console.warn("No system audio shared. Proceeding with mic only.");
+            }
+
+            // Ensure mixed stream has tracks
+            if (mixedOutput.stream.getAudioTracks().length === 0) { 
+                throw new Error("Mixed output stream has no audio tracks!");
+            }
+
+            // 2. Initialize Recorder
+            mediaRecorder = new MediaRecorder(mixedOutput.stream, { mimeType: 'audio/webm' });
+            
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && socket.readyState === 1) {
+                    socket.send(event.data);
+                }
+            };
+            
+            console.log("Recorder initialized");
+            if (deepgramReady) {
+                console.log("Deepgram is already ready, starting recorder...");
+                mediaRecorder.start(250);
+                micBtn.innerText = 'Stop Listening (Live)';
+                micBtn.classList.add('recording');
+            } else {
+                console.log("Waiting for Deepgram Handshake...");
+            }
+        } catch (err) {
+            console.error("Capture failed:", err);
+            micBtn.innerText = 'Error: Check Permissions';
+        }
+    };
+
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'DeepgramReady') {
+            deepgramReady = true;
+            console.log("Deepgram is ready.");
+            if (mediaRecorder && mediaRecorder.state !== 'recording') {
+                console.log("Starting recorder...");
+                mediaRecorder.start(250); // Now it won't be undefined
+                micBtn.innerText = 'Stop Listening (Live)';
+                micBtn.classList.add('recording');
+            }
+            return;
+        }
+
+        if (data.text) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message speaker-${data.speaker}`;
+            msgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
+            chatContainer.appendChild(msgDiv);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+    };
+};
+    </script>
+</body>
+</html>
