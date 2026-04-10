@@ -111,10 +111,31 @@ micBtn.onclick = async () => {
         }
 
         if (data.text) {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `message speaker-${data.speaker}`;
-            msgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
-            chatContainer.appendChild(msgDiv);
+            let currMsgDiv = document.getElementById('current-interim');
+            
+            if (data.is_final) {
+                if (currMsgDiv) {
+                    currMsgDiv.removeAttribute('id');
+                    currMsgDiv.className = `message speaker-${data.speaker}`;
+                    currMsgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
+                    currMsgDiv.style.opacity = '1';
+                } else {
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = `message speaker-${data.speaker}`;
+                    msgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
+                    chatContainer.appendChild(msgDiv);
+                }
+            } else {
+                if (!currMsgDiv) {
+                    currMsgDiv = document.createElement('div');
+                    currMsgDiv.id = 'current-interim';
+                    currMsgDiv.className = `message speaker-${data.speaker}`;
+                    currMsgDiv.style.opacity = '0.7';
+                    chatContainer.appendChild(currMsgDiv);
+                }
+                currMsgDiv.className = `message speaker-${data.speaker}`; /* update speaker if changes */
+                currMsgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
+            }
             window.scrollTo(0, document.body.scrollHeight);
         }
     };

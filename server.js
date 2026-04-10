@@ -24,6 +24,7 @@ wss.on('connection', (ws) => {
     model: 'nova-2',
     smart_format: true,
     diarize: true,
+    interim_results: true, // <-- NEW: Receive words instantly for smooth transcription
     // detect_language: true, // <-- FIX 1: Automatically detects English vs Hindi
     endpointing: 250,      // <-- FIX 2: Cuts the latency by finalizing faster
   });
@@ -47,10 +48,10 @@ wss.on('connection', (ws) => {
           console.log(`[Deepgram Empty]: is_final: ${data.is_final}`);
       }
 
-      // Only send the finalized ones to the frontend it requires at least one word
-      if (transcript && data.is_final && data.channel.alternatives[0].words && data.channel.alternatives[0].words.length > 0) {
+      // Send both finalized and interim results to the frontend if it requires at least one word
+      if (transcript && data.channel.alternatives[0].words && data.channel.alternatives[0].words.length > 0) {
         const speakerId = data.channel.alternatives[0].words[0].speaker;
-        ws.send(JSON.stringify({ speaker: speakerId, text: transcript }));
+        ws.send(JSON.stringify({ speaker: speakerId, text: transcript, is_final: data.is_final }));
       }
     } catch (err) {
       console.log('❌ Error parsing transcript:', err.message, JSON.stringify(data));
