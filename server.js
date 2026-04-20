@@ -3,6 +3,9 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const { DeepgramClient } = require('@deepgram/sdk');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,6 +13,69 @@ const wss = new WebSocket.Server({ server });
 
 // Serve our frontend HTML file
 app.use(express.static('public'));
+app.use(express.json());
+
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+const aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// Helper to get codebase context
+function getCodebaseContext() {
+    const filesToRead = ['server.js', 'public/index.html']; // Expand as needed
+    let context = "CURRENT CODEBASE CONTEXT:\n\n";
+    
+    filesToRead.forEach(file => {
+        try {
+            const filePath = path.join(__dirname, file);
+            if (fs.existsSync(filePath)) {
+                const content = fs.readFileSync(filePath, 'utf8');
+                context += `--- FILE: ${file} ---\n${content}\n\n`;
+            }
+        } catch (err) {
+            console.error(`Could not read ${file} for context:`, err.message);
+        }
+    });
+    return context;
+}
+
+// AI Thought Processing Endpoint
+app.post('/process-thought', async (req, res) => {
+    const { transcript } = req.body;
+    console.log("🤖 Processing AI Thought for:", transcript);
+    
+    if (!transcript || transcript.trim().length < 2) {
+        return res.status(400).json({ error: "Transcript too short or missing." });
+    }
+
+    try {
+        const codebaseContext = getCodebaseContext();
+        const systemPrompt = `
+            You are a Personal Meeting Co-pilot for a Developer. 
+            You are listening to a meeting and the developer just triggered you to process the last thought.
+            
+            YOUR MODES:
+            1. CLARIFICATION: If the client/speaker said something vague (e.g. "add a dashboard"), generate 2-3 smart follow-up questions.
+            2. ANSWER: If a technical question was asked, provide a concise, accurate answer based on the CODEBASE context.
+
+            CODEBASE CONTEXT:
+            ${codebaseContext}
+
+            TRANSCRIPT SEGMENT:
+            "${transcript}"
+
+            Keep your response professional, concise, and focused on helping the developer respond effectively.
+        `;
+
+        const result = await aiModel.generateContent(systemPrompt);
+        const response = await result.response;
+        const text = response.text();
+
+        res.json({ response: text });
+    } catch (error) {
+        console.error("❌ Gemini Error:", error);
+        res.status(500).json({ error: "AI Failed to respond." });
+    }
+});
 
 // Initialize Deepgram
 const { createClient, LiveTranscriptionEvents } = require('@deepgram/sdk');

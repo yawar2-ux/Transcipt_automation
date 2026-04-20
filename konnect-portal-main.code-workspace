@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "../../../../kong portal/konnect-portal-main"
+		},
+		{
+			"path": "../../dev_backend"
+		}
+	],
+	"settings": {}
+}

@@ -3,143 +3,315 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Architect HUD</title>
+    <title>Live Architect | AI Co-Pilot</title>
     <style>
-        body { background-color: #121212; color: #ffffff; font-family: sans-serif; padding: 20px; }
-        h2 { text-align: center; color: #9ca3af; }
-        .chat { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
-        .message { padding: 12px; border-radius: 8px; max-width: 80%; line-height: 1.5; }
+        :root {
+            --bg: #0a0a0c;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.5);
+            --text-main: #e2e8f0;
+            --text-dim: #94a3b8;
+            --speaker-0: #3b82f6;
+            --speaker-1: #10b981;
+            --speaker-2: #f59e0b;
+        }
+
+        body { 
+            background-color: var(--bg); 
+            color: var(--text-main); 
+            font-family: 'Inter', -apple-system, sans-serif; 
+            margin: 0; 
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header / HUD Bar */
+        .hud-header {
+            padding: 20px;
+            background: rgba(10, 10, 12, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+            display: inline-block;
+            margin-right: 8px;
+            box-shadow: 0 0 10px #ef4444;
+        }
+        .status-dot.active { background: #10b981; box-shadow: 0 0 10px #10b981; }
+
+        /* Main Chat Area */
+        .main-view {
+            flex: 1;
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .transcript-column {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        .ai-column {
+            flex: 1;
+            background: var(--card-bg);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+            overflow-y: auto;
+        }
+
+        /* Message Styles */
+        .message {
+            padding: 14px 18px;
+            border-radius: 12px;
+            max-width: 90%;
+            line-height: 1.6;
+            background: var(--card-bg);
+            border-left: 4px solid var(--accent);
+            animation: slideIn 0.3s ease-out;
+            position: relative;
+        }
+
+        .speaker-tag {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .ai-response {
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid var(--accent);
+            border-radius: 12px;
+            padding: 15px;
+            color: #fff;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Controls Area */
+        .controls {
+            padding: 20px;
+            background: rgba(10, 10, 12, 0.9);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        button { 
+            padding: 12px 24px; 
+            background: var(--accent); 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            font-weight: 600; 
+            cursor: pointer; 
+            transition: 0.3s;
+            box-shadow: 0 4px 14px var(--accent-glow);
+        }
+        button:hover { transform: translateY(-2px); opacity: 0.9; }
+        button.recording { background: #ef4444; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.5); }
+
+        .hint { color: var(--text-dim); font-size: 0.85rem; }
+        kbd { background: #333; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
         
-        /* Auto-color different speakers */
-        .speaker-0 { background-color: #1e3a8a; align-self: flex-start; }
-        .speaker-1 { background-color: #064e3b; align-self: flex-end; }
-        .speaker-2 { background-color: #7f1d1d; align-self: center; }
-        
-        button { padding: 15px; background-color: #2563eb; color: white; border: none; border-radius: 8px; width: 100%; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s;}
-        button:active { transform: scale(0.98); }
-        .recording { background-color: #dc2626; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
     </style>
 </head>
 <body>
-    <h2>Meeting Transcript API</h2>
-    <button id="micBtn">Start Listening</button>
-    <div class="chat" id="chatContainer"></div>
+    <div class="hud-header">
+        <div>
+            <span id="statusDot" class="status-dot"></span>
+            <span id="statusText">System Standby</span>
+        </div>
+        <div style="color: var(--text-dim); font-size: small;">BETA v1.5 [Gemini Flash]</div>
+    </div>
+
+    <div class="main-view">
+        <div class="transcript-column" id="chatContainer">
+            <!-- Messages appear here -->
+        </div>
+        <div class="ai-column" id="aiContainer">
+            <div style="color: var(--text-dim); text-align: center; margin-top: 50%;">
+                AI insights will appear here when you press <kbd>Enter</kbd>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="micBtn">Initialize Audio</button>
+        <div class="hint">Accumulating transcript... Press <kbd>Enter</kbd> to ask AI.</div>
+    </div>
 
     <script>
-        let mediaRecorder; // Global scope
-let socket;
-let deepgramReady = false;
+        let mediaRecorder;
+        let socket;
+        let deepgramReady = false;
+        let thoughtBuffer = ""; // Global buffer for current thought
 
-micBtn.onclick = async () => {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-        socket.close();
-        micBtn.innerText = 'Start Listening';
-        micBtn.classList.remove('recording');
-        return;
-    }
-
-    socket = new WebSocket('ws://localhost:3000');
-    deepgramReady = false;
-
-    socket.onopen = async () => {
-        micBtn.innerText = 'Connecting to AI...';
-        
-        try {
-            // Create audio context immediately to catch the user gesture!
-            const audioContext = new AudioContext();
-            
-            // 1. Capture Mic + System Audio
-            const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).catch(() => null);
-            
-            if (audioContext.state === 'suspended') {
-                await audioContext.resume();
+        micBtn.onclick = async () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                socket.close();
+                micBtn.innerText = 'Initialize Audio';
+                micBtn.classList.remove('recording');
+                statusDot.classList.remove('active');
+                statusText.innerText = "System Standby";
+                return;
             }
 
-            const mixedOutput = audioContext.createMediaStreamDestination();
+            socket = new WebSocket(`ws://${location.host}`);
+            deepgramReady = false;
 
-            audioContext.createMediaStreamSource(micStream).connect(mixedOutput);
-            if (displayStream && displayStream.getAudioTracks().length > 0) {
-                audioContext.createMediaStreamSource(displayStream).connect(mixedOutput);
-            } else {
-                console.warn("No system audio shared. Proceeding with mic only.");
-            }
+            socket.onopen = async () => {
+                statusText.innerText = "Connecting...";
+                
+                try {
+                    const audioContext = new AudioContext();
+                    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).catch(() => null);
+                    
+                    if (audioContext.state === 'suspended') await audioContext.resume();
 
-            // Ensure mixed stream has tracks
-            if (mixedOutput.stream.getAudioTracks().length === 0) { 
-                throw new Error("Mixed output stream has no audio tracks!");
-            }
+                    const mixedOutput = audioContext.createMediaStreamDestination();
+                    audioContext.createMediaStreamSource(micStream).connect(mixedOutput);
+                    
+                    if (displayStream && displayStream.getAudioTracks().length > 0) {
+                        audioContext.createMediaStreamSource(displayStream).connect(mixedOutput);
+                    }
 
-            // 2. Initialize Recorder
-            mediaRecorder = new MediaRecorder(mixedOutput.stream, { mimeType: 'audio/webm' });
-            
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0 && socket.readyState === 1) {
-                    socket.send(event.data);
+                    mediaRecorder = new MediaRecorder(mixedOutput.stream, { mimeType: 'audio/webm' });
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0 && socket.readyState === 1) {
+                            socket.send(event.data);
+                        }
+                    };
+                    
+                    if (deepgramReady) startRecording();
+                } catch (err) {
+                    console.error("Capture failed:", err);
+                    statusText.innerText = "Error: Check Permissions";
                 }
             };
-            
-            console.log("Recorder initialized");
-            if (deepgramReady) {
-                console.log("Deepgram is already ready, starting recorder...");
-                mediaRecorder.start(250);
-                micBtn.innerText = 'Stop Listening (Live)';
-                micBtn.classList.add('recording');
-            } else {
-                console.log("Waiting for Deepgram Handshake...");
-            }
-        } catch (err) {
-            console.error("Capture failed:", err);
-            micBtn.innerText = 'Error: Check Permissions';
-        }
-    };
 
-    socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'DeepgramReady') {
-            deepgramReady = true;
-            console.log("Deepgram is ready.");
-            if (mediaRecorder && mediaRecorder.state !== 'recording') {
-                console.log("Starting recorder...");
-                mediaRecorder.start(250); // Now it won't be undefined
-                micBtn.innerText = 'Stop Listening (Live)';
-                micBtn.classList.add('recording');
-            }
-            return;
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'DeepgramReady') {
+                    deepgramReady = true;
+                    if (mediaRecorder && mediaRecorder.state !== 'recording') startRecording();
+                    return;
+                }
+
+                if (data.text) {
+                    handleTranscript(data);
+                }
+            };
+        };
+
+        function startRecording() {
+            mediaRecorder.start(250);
+            micBtn.innerText = 'Stop Session';
+            micBtn.classList.add('recording');
+            statusDot.classList.add('active');
+            statusText.innerText = "Live Monitoring";
         }
 
-        if (data.text) {
+        function handleTranscript(data) {
             let currMsgDiv = document.getElementById('current-interim');
             
             if (data.is_final) {
+                thoughtBuffer += " " + data.text; // Accumulate
                 if (currMsgDiv) {
                     currMsgDiv.removeAttribute('id');
-                    currMsgDiv.className = `message speaker-${data.speaker}`;
-                    currMsgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
-                    currMsgDiv.style.opacity = '1';
+                    finalizeMsg(currMsgDiv, data);
                 } else {
                     const msgDiv = document.createElement('div');
-                    msgDiv.className = `message speaker-${data.speaker}`;
-                    msgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
+                    finalizeMsg(msgDiv, data);
                     chatContainer.appendChild(msgDiv);
                 }
             } else {
                 if (!currMsgDiv) {
                     currMsgDiv = document.createElement('div');
                     currMsgDiv.id = 'current-interim';
-                    currMsgDiv.className = `message speaker-${data.speaker}`;
-                    currMsgDiv.style.opacity = '0.7';
                     chatContainer.appendChild(currMsgDiv);
                 }
-                currMsgDiv.className = `message speaker-${data.speaker}`; /* update speaker if changes */
-                currMsgDiv.innerText = `[Speaker ${data.speaker}]: ${data.text}`;
+                currMsgDiv.className = `message`;
+                currMsgDiv.style.borderLeftColor = `var(--speaker-${data.speaker || 0})`;
+                currMsgDiv.innerHTML = `<div class="speaker-tag" style="color: var(--speaker-${data.speaker || 0})">Speaker ${data.speaker} (Interim)</div>${data.text}`;
             }
-            window.scrollTo(0, document.body.scrollHeight);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
-    };
-};
+
+        function finalizeMsg(div, data) {
+            div.className = `message`;
+            div.style.borderLeftColor = `var(--speaker-${data.speaker || 0})`;
+            div.innerHTML = `<div class="speaker-tag" style="color: var(--speaker-${data.speaker || 0})">Speaker ${data.speaker}</div>${data.text}`;
+        }
+
+        // AI Processing Trigger
+        window.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter' && thoughtBuffer.trim().length > 0) {
+                console.log("🚀 Sending thought to AI...");
+                const currentThought = thoughtBuffer.trim();
+                thoughtBuffer = ""; // Clear buffer immediately
+                
+                // Clear UI transcript for fresh start
+                chatContainer.innerHTML = `<div style="color: var(--text-dim); text-align: center; border: 1px dashed rgba(255,255,255,0.1); padding: 10px; border-radius: 8px;">Previous thought cleared. Monitoring...</div>`;
+
+                // Show loading state in AI column
+                const aiBubble = document.createElement('div');
+                aiBubble.className = 'ai-response';
+                aiBubble.innerText = "Thinking...";
+                aiContainer.prepend(aiBubble);
+
+                try {
+                    const response = await fetch('/process-thought', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ transcript: currentThought })
+                    });
+                    const result = await response.json();
+                    
+                    aiBubble.innerHTML = `<div style="font-size: 0.7rem; color: var(--accent); margin-bottom: 5px;">AI CO-PILOT RESPONSE:</div>${result.response}`;
+                } catch (err) {
+                    aiBubble.innerText = "Error processing thought.";
+                    aiBubble.style.borderColor = "#ef4444";
+                }
+            }
+        });
     </script>
 </body>
 </html>
