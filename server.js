@@ -18,26 +18,36 @@ app.use(express.json());
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
 
-const MODEL_FALLBACK_CHAIN = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+const MODEL_FALLBACK_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
 
 // Helper for retrying AI calls with model fallback
 async function withRetry(promptFn, retries = 2, delay = 1000) {
     for (const modelName of MODEL_FALLBACK_CHAIN) {
-        const aiModel = genAI.getGenerativeModel({ model: modelName });
-        for (let i = 0; i < retries; i++) {
-            try {
-                console.log(`🤖 Trying model: ${modelName} (attempt ${i + 1})`);
-                return await promptFn(aiModel);
-            } catch (err) {
-                const isOverloaded = err.status === 503 || err.status === 429;
-                if (!isOverloaded) throw err; // Non-overload error — bail immediately
-                console.log(`⚠️ ${modelName} overloaded (${err.status}), retry ${i + 1}/${retries}`);
-                await new Promise(res => setTimeout(res, delay * (i + 1)));
+        try {
+            const aiModel = genAI.getGenerativeModel({ model: modelName });
+            for (let i = 0; i < retries; i++) {
+                try {
+                    console.log(`🤖 Trying model: ${modelName} (attempt ${i + 1})`);
+                    return await promptFn(aiModel);
+                } catch (err) {
+                    const isOverloaded = err.status === 503 || err.status === 429;
+                    if (!isOverloaded) throw err; // Let 404s or others be handled by the outer catch
+                    console.log(`⚠️ ${modelName} overloaded (${err.status}), retry ${i + 1}/${retries}`);
+                    await new Promise(res => setTimeout(res, delay * (i + 1)));
+                }
+            }
+        } catch (err) {
+            const isNotFound = err.status === 404;
+            if (isNotFound) {
+                console.log(`⚠️ ${modelName} not found (404), skipping...`);
+            } else {
+                console.log(`❌ Error with ${modelName}:`, err.message);
+                throw err; // Stop if it's a fatal error like invalid API key
             }
         }
         console.log(`⏭️ Falling back from ${modelName}...`);
     }
-    throw new Error("All models are currently overloaded. Please try again shortly.");
+    throw new Error("All models are currently unavailable. Please try again shortly.");
 }
 
 // Helper to get codebase context
@@ -71,12 +81,14 @@ app.post('/process-thought', async (req, res) => {
     try {
         const codebaseContext = getCodebaseContext();
         const systemPrompt = `
-            You are a Personal Meeting Co-pilot for a Developer. 
-            You are listening to a meeting and the developer just triggered you to process the last thought.
+            You are a Personal Meeting Co-pilot for a Developer, acting as a Product Architect and Technical Lead. 
+            You are listening to a meeting and providing high-level technical guidance.
             
             YOUR MODES:
-            1. CLARIFICATION: If the client/speaker said something vague (e.g. "add a dashboard"), generate 2-3 smart follow-up questions.
-            2. ANSWER: If a technical question was asked, provide a concise, accurate answer based on the CODEBASE context.
+            1. CLARIFICATION: If a speaker mentions a feature or concept that is vague or has multiple implementation paths, generate 2-3 smart follow-up questions to help the developer clarify requirements.
+            2. ANSWER & ADVICE: 
+               - If a question is about the current codebase, provide a concise answer based on the CODEBASE CONTEXT.
+               - If a question is about a general technical concept or feature NOT in the codebase, provide expert architectural advice, industry best practices, or potential implementation strategies. Do NOT simply say "it is not in the codebase."
 
             CODEBASE CONTEXT:
             ${codebaseContext}
@@ -84,7 +96,7 @@ app.post('/process-thought', async (req, res) => {
             TRANSCRIPT SEGMENT:
             "${transcript}"
 
-            Keep your response professional, concise, and focused on helping the developer respond effectively.
+            Keep your response professional, insightful, and focused on enabling the developer to participate effectively in the meeting. Provide enough detail to be useful but keep it readable in a fast-paced meeting.
         `;
 
         // Pass a function that accepts the model — withRetry will inject each fallback model
