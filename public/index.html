@@ -155,7 +155,7 @@
             <span id="statusDot" class="status-dot"></span>
             <span id="statusText">System Standby</span>
         </div>
-        <div style="color: var(--text-dim); font-size: small;">BETA v1.5 [Gemini Flash]</div>
+        <div style="color: var(--text-dim); font-size: small;">BETA v2.5 [Gemini Flash]</div>
     </div>
 
     <div class="main-view">
@@ -305,7 +305,7 @@
                     });
                     const result = await response.json();
                     
-                    aiBubble.innerHTML = `<div style="font-size: 0.7rem; color: var(--accent); margin-bottom: 5px;">AI CO-PILOT RESPONSE:</div>${result.response}`;
+                    aiBubble.innerHTML = `<div style="font-size: 0.7rem; color: var(--accent); margin-bottom: 5px;">AI CO-PILOT RESPONSE:</div>${result.response || result.error || 'Thinking failed.'}`;
                 } catch (err) {
                     aiBubble.innerText = "Error processing thought.";
                     aiBubble.style.borderColor = "#ef4444";

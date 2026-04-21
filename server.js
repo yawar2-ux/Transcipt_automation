@@ -17,7 +17,28 @@ app.use(express.json());
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
-const aiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+const MODEL_FALLBACK_CHAIN = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+
+// Helper for retrying AI calls with model fallback
+async function withRetry(promptFn, retries = 2, delay = 1000) {
+    for (const modelName of MODEL_FALLBACK_CHAIN) {
+        const aiModel = genAI.getGenerativeModel({ model: modelName });
+        for (let i = 0; i < retries; i++) {
+            try {
+                console.log(`🤖 Trying model: ${modelName} (attempt ${i + 1})`);
+                return await promptFn(aiModel);
+            } catch (err) {
+                const isOverloaded = err.status === 503 || err.status === 429;
+                if (!isOverloaded) throw err; // Non-overload error — bail immediately
+                console.log(`⚠️ ${modelName} overloaded (${err.status}), retry ${i + 1}/${retries}`);
+                await new Promise(res => setTimeout(res, delay * (i + 1)));
+            }
+        }
+        console.log(`⏭️ Falling back from ${modelName}...`);
+    }
+    throw new Error("All models are currently overloaded. Please try again shortly.");
+}
 
 // Helper to get codebase context
 function getCodebaseContext() {
@@ -66,14 +87,16 @@ app.post('/process-thought', async (req, res) => {
             Keep your response professional, concise, and focused on helping the developer respond effectively.
         `;
 
-        const result = await aiModel.generateContent(systemPrompt);
+        // Pass a function that accepts the model — withRetry will inject each fallback model
+        const result = await withRetry((model) => model.generateContent(systemPrompt));
         const response = await result.response;
         const text = response.text();
 
         res.json({ response: text });
     } catch (error) {
         console.error("❌ Gemini Error:", error);
-        res.status(500).json({ error: "AI Failed to respond." });
+        const message = error.message || "AI Failed to respond.";
+        res.status(503).json({ error: message });
     }
 });
 
@@ -85,25 +108,19 @@ wss.on('connection', (ws) => {
   console.log('📱 Browser connected to backend!');
 
   // Open the stream to Deepgram
-  // Open the stream to Deepgram
   const dgConnection = deepgram.listen.live({
     model: 'nova-2',
     smart_format: true,
     diarize: true,
-    interim_results: true, // <-- NEW: Receive words instantly for smooth transcription
-    // detect_language: true, // <-- FIX 1: Automatically detects English vs Hindi
-    endpointing: 250,      // <-- FIX 2: Cuts the latency by finalizing faster
+    interim_results: true,
+    endpointing: 250,
   });
 
   dgConnection.on(LiveTranscriptionEvents.Open, () => {
     console.log('🔗 Connected to Deepgram API');
-    
-    // THE FIX: Tell the browser it is safe to start recording
     ws.send(JSON.stringify({ type: 'DeepgramReady' }));
   });
 
-  // When Deepgram sends text back, forward it to the browser
-  // 1. See EVERYTHING Deepgram sends back, even the drafts
   dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
     try {
       const transcript = data.channel.alternatives[0].transcript;
@@ -114,7 +131,6 @@ wss.on('connection', (ws) => {
           console.log(`[Deepgram Empty]: is_final: ${data.is_final}`);
       }
 
-      // Send both finalized and interim results to the frontend if it requires at least one word
       if (transcript && data.channel.alternatives[0].words && data.channel.alternatives[0].words.length > 0) {
         const speakerId = data.channel.alternatives[0].words[0].speaker;
         ws.send(JSON.stringify({ speaker: speakerId, text: transcript, is_final: data.is_final }));
@@ -140,9 +156,7 @@ wss.on('connection', (ws) => {
     console.log('❓ Deepgram Unhandled Event:', event);
   });
 
-  // When the browser sends audio chunks, forward them to Deepgram
- ws.on('message', (audioData) => {
-    // Log the size of the audio chunk arriving from the browser
+  ws.on('message', (audioData) => {
     console.log(`🎤 Received audio chunk: ${audioData.length} bytes`);
     
     if (dgConnection.getReadyState() === 1) { 
@@ -155,7 +169,8 @@ wss.on('connection', (ws) => {
     dgConnection.disconnect();
   });
 });
-// testing// Start the server
+
+// Start the server
 server.listen(3000, () => {
   console.log('🚀 Server running at http://localhost:3000');
 });
